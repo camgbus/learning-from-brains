@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 
 """
-train.py
+train.py e
 
 Training of models on given data. See get_args() for 
 details on command line arguments.
