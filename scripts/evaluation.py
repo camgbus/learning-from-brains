@@ -1,42 +1,3 @@
-#!/usr/bin/env python3
-
-"""
-train.py
-
-Training of models on given data. See get_args() for 
-details on command line arguments.
-
-To train a model, multiple core components from ..src/ 
-are invoked:
-
-src/batcher: Building PyTorch dataloaders for given data.
-src/embedder: Embedding of inputs into embedding space, 
-    training-style specific addition of training tokens
-    and masking, and computation of training-style specific 
-    losses.
-    Valid training styles:
-        - CSM (Causal Sequence Modeling)
-        - BERT (Sequence-BERT)
-        - NetBERT (Network-BERT)
-        - autoencoder
-        - decoding
-src/decoder: Model architecture used for decoding / sequence modeling. 
-    One of the following:
-        - GPT
-        - BERT
-        - NetBERT
-        - autoencoder
-        - LinearBaseline
-        - PretrainedGPT2 (as provided by HuggingFace)
-        - PretrainedBERT (as provided by HuggingFace)
-src/unembedder: Projecting sequence output of decoder back 
-    to input space.
-src/trainer: Trainer for model; invokes instance of 
-    Hugging Face's Trainer object.
-src/model: Build full model from components (ie., embedder, 
-    decoder, unembedder). See make_model() below for details.
-"""
-
 import os
 import argparse
 from typing import Dict
@@ -57,157 +18,39 @@ from src.unembedder import make_unembedder
 from src.model import Model
 from src import tools
 
+#pass in subject numbers for testing. Loop over and do training for each subject one by one. Store separately. 
 
-def train(config: Dict=None) -> Trainer:
-    """Model training according to config.
-        -> see get_args() below for all command 
-        line arguments.
-    """
-    
-    if config is None:
-        config = get_config()
+def test_for_subject(config, subject):
+    tarfile_paths = tools.data.grab_tarfile_paths(config["data"])
 
-    if config['do_train']:
-        os.makedirs(
-            config["log_dir"],
-            exist_ok=True
-        )
-
-        resume_path = str(config["resume_from"]) if config["resume_from"] is not None else None
-        
-        if resume_path is not None:
-            config_filepath = os.path.join(
-                config["resume_from"],
-                'train_config.json'
-            )
-
-            if os.path.isfile(config_filepath):
-                print(
-                    f'Loading training config from {config_filepath}'
-                )
-
-                with open(config_filepath, 'r') as f:
-                    config = json.load(f)
-
-            else:
-
-                with open(config_filepath, 'w') as f:
-                    json.dump(config, f, indent=2)
-            
-            checkpoints = [
-                int(p.split('checkpoint-')[1])
-                for p in os.listdir(resume_path)
-                if 'checkpoint-' in p
-                and os.path.isdir(os.path.join(resume_path, p))
-            ]
-            last_checkpoint = max(checkpoints)
-            print(
-                f'Resuming training from checkpoint-{last_checkpoint} in {resume_path}'
-            )
-            config["resume_from"] = os.path.join(
-                resume_path,
-                f'checkpoint-{last_checkpoint}'
-            )
-
-        else:
-            config_filepath = os.path.join(
-                config["log_dir"],
-                'train_config.json'
-            )
-            
-            with open(config_filepath, 'w') as f:
-                json.dump(config, f, indent=2)
-
-            config["resume_from"] = None
-
-    assert config["training_style"] in {
-        'BERT',
-        'CSM',
-        'NetBERT',
-        'autoencoder',
-        'decoding'
-    }, f'{config["training_style"]} is not supported.'
-    
-    assert config["architecture"] in {
-        'BERT',
-        'NetBERT',
-        'GPT',
-        'autoencoder',
-        'PretrainedGPT2',
-        'PretrainedBERT',
-        'LinearBaseline'
-    }, f'{config["architecture"]} is not supported.'
-    
-    path_tarfile_paths_split = os.path.join(
-        config["log_dir"],
-        'tarfile_paths_split.json'
+    datasets = np.unique(
+        [
+            f.split('/')[-1].split('ds-')[1].split('_')[0]
+            for f in tarfile_paths
+        ]
     )
-
-    if config['set_seed']:
-        random.seed(config["seed"])
-        manual_seed(config["seed"])
-
-
-    #this previous code is not being run. Instead of randomly splitting up the data,
-    #the training, validation, and testing data is set beforehand. 
-    
-    #this is where the data goes and is split into training, testing, validation. 
-    if not os.path.isfile(path_tarfile_paths_split): 
-        tarfile_paths = tools.data.grab_tarfile_paths(config["data"])
-        tarfile_paths_split = tools.data.split_tarfile_paths_train_val(
-            tarfile_paths=tarfile_paths,
-            training_subjects=config["training_subjects"].split(),
-            validation_subjects=config["validation_subjects"].split(),
-            testing_subjects=config["testing_subjects"].split(),
-            seed=config["seed"] if config['set_seed'] else np.random.choice(range(1, 100000))
-        )
-        print(
-            f'Saving tarfile split to {path_tarfile_paths_split}'
+    test_tarfiles = []
+    for dataset in datasets:
+        dataset_tarfiles = np.unique(
+            [
+                f for f in tarfile_paths
+                if f'ds-{dataset}' in f
+            ]
         )
 
-        with open(path_tarfile_paths_split, 'w') as f:
-            json.dump(tarfile_paths_split, f, indent=2)
-
-    else:
-        print(
-            f'Loading tarfile split from {path_tarfile_paths_split}'
-        )
-
-        with open(path_tarfile_paths_split, 'r') as f:
-            tarfile_paths_split = json.load(f)
-
-    #data split up for training, validation, and testing. 
-    train_tarfile_paths = tarfile_paths_split['train']
-    validation_tarfile_paths = tarfile_paths_split['validation'] if len(tarfile_paths_split['validation']) != 0 else None
-    test_tarfile_paths = tarfile_paths_split['test'] if len(tarfile_paths_split['test']) != 0 else None
+        test_tarfiles += [
+            f for f in dataset_tarfiles
+            if f'sub-{subject}' in f
+        ]
     
-    print(len(train_tarfile_paths))
-    print(len(validation_tarfile_paths))
-    print(len(test_tarfile_paths))
+    assert(len(test_tarfiles) != 0),\
+            'Not all subjects in train_subjects are in the dataset'
 
-    #train_tarfile_paths = tools.data.grab_tarfile_paths(config["training_data"])
-    #if config["validation_data"] is not None:
-    #    validation_tarfile_paths = tools.data.grab_tarfile_paths(config["validation_data"])
-    #else:
-    #    validation_tarfile_paths = None
-    #if config["test_data"] is not None:
-    #    test_tarfile_paths = tools.data.grab_tarfile_paths(config["test_data"])
-    #else:
-    #    test_tarfile_paths = None
-    
+   
     assert all(
-        os.path.isfile(f) for f in train_tarfile_paths
-    ), f'Some of the training tarfiles in {path_tarfile_paths_split} do not exist.'
+        os.path.isfile(f) for f in test_tarfiles
+    ), f'Some of the tarfiles in do not exist.'
     
-    if validation_tarfile_paths is not None:
-        assert all(
-            os.path.isfile(f) for f in validation_tarfile_paths
-        ), f'Some of the validation tarfiles in {path_tarfile_paths_split} do not exist.'
-    
-    if test_tarfile_paths is not None:
-        assert all(
-            os.path.isfile(f) for f in test_tarfile_paths
-        ), f'Some of the test tarfiles in {path_tarfile_paths_split} do not exist.'
     
     batcher = make_batcher(
         training_style=config["training_style"],
@@ -219,25 +62,12 @@ def train(config: Dict=None) -> Trainer:
         decoding_target=config["decoding_target"],
         bold_dummy_mode=config["bold_dummy_mode"]
     )
-    train_dataset = batcher.dataset(
-        tarfiles=train_tarfile_paths,
-        length=config["training_steps"]*config["per_device_training_batch_size"]
-    )
-    if validation_tarfile_paths is not None:
-        validation_dataset = batcher.dataset(
-            tarfiles=validation_tarfile_paths,
-            length=config["validation_steps"]*config["per_device_validation_batch_size"]
-        )
-    else:
-        validation_dataset = None
 
-    if test_tarfile_paths is not None:
-        test_dataset = batcher.dataset(
-            tarfiles=test_tarfile_paths,
-            length=config["test_steps"]*config["per_device_validation_batch_size"]
-        ) 
-    else:
-        test_dataset = None
+    test_dataset = batcher.dataset(
+        tarfiles=test_tarfiles,
+        length=config["test_steps"]*config["per_device_validation_batch_size"]
+    )
+     
 
     def model_init(params: Dict=None):
         model_config = dict(config)
@@ -247,26 +77,18 @@ def train(config: Dict=None) -> Trainer:
 
         return make_model(model_config)
 
-    if config['do_train']:
-        tools.configure_wandb(
-            config=config,
-            entity='athms',
-            run_id=config["run_name"],
-            project=config["wandb_project_name"],
-            mode=config["wandb_mode"]
-        )
 
     #making the trainer with all of the configurations and data. 
     trainer = make_trainer(
         model_init=model_init,
         training_style=config["training_style"],
         wandb_mode=config["wandb_mode"],
-        do_eval = True if validation_dataset is not None else False,
-        evaluation_strategy = 'steps' if validation_dataset is not None else "no", 
+        do_eval = False,
+        do_train = False,
         run_name=config["run_name"],
         output_dir=config["log_dir"],
-        train_dataset=train_dataset,
-        validation_dataset=validation_dataset,
+        train_dataset=None,
+        validation_dataset=None,
         per_device_train_batch_size=config["per_device_training_batch_size"],
         per_device_eval_batch_size=config["per_device_validation_batch_size"],
         dataloader_num_workers=config["num_workers"],
@@ -287,53 +109,56 @@ def train(config: Dict=None) -> Trainer:
         deepspeed=config["deepspeed"],
     )
 
-    if config["plot_model_graph"]:
-        tools.visualize.plot_model_graph(
-            model=trainer.model,
-            dataloader=trainer.get_train_dataloader(),
-            path=os.path.join(
-                config["log_dir"],
-                'model_graph'
-            )
-        )
+    test_prediction = trainer.predict(test_dataset)
 
-    if config['do_train']:
-        trainer.train(resume_from_checkpoint=config["resume_from"])
-        trainer.save_model(
-            os.path.join(
-                config["log_dir"],
-                'model_final'
-            )
-        )
+    os.mkdir(os.path.join(config["log_dir"], str(subject)))
 
-    if test_dataset is not None:
-        test_prediction = trainer.predict(test_dataset)
-        pd.DataFrame(
-            test_prediction.metrics,
-            index=[0]
-        ).to_csv(
-            os.path.join(
-                config["log_dir"],
-                'test_metrics.csv'
-            ),
-            index=False
-        )
-        np.save(
-            os.path.join(
-                config["log_dir"],
-                'test_predictions.npy'
-            ),
-            test_prediction.predictions
-        )
-        np.save(
-            os.path.join(
-                config["log_dir"],
-                'test_label_ids.npy'
-            ),
-            test_prediction.label_ids
-        )
+    pd.DataFrame(
+        test_prediction.metrics,
+        index=[0]
+    ).to_csv(
+        os.path.join(
+            config["log_dir"],
+            str(subject),
+            'test_metrics.csv'
+        ),
+        index=False
+    )
+    np.save(
+        os.path.join(
+            config["log_dir"],
+                str(subject),
+            'test_predictions.npy'
+        ),
+        test_prediction.predictions
+    )
+    np.save(
+        os.path.join(
+            config["log_dir"],
+                str(subject),
+            'test_label_ids.npy'
+        ),
+        test_prediction.label_ids
+    )
 
     return trainer
+
+def train(config: Dict=None) -> Trainer:
+    """Model training according to config.
+        -> see get_args() below for all command 
+        line arguments.
+    """
+    if config is None:
+        config = get_config()
+
+    testing_subjects = config["testing_subjects"].split()
+
+    assert len(testing_subjects) != 0 ,\
+        'testing_subjects must be specified'
+
+
+    for subject in testing_subjects:
+        test_for_subject(config, subject)
 
 
 def make_model(model_config: Dict=None):
@@ -414,8 +239,6 @@ def make_model(model_config: Dict=None):
 
     return model
 
-
-
 def get_config(args: argparse.Namespace=None) -> Dict:
     """
     Make config from command line arguments (as created by get_args()).
@@ -473,8 +296,7 @@ def get_config(args: argparse.Namespace=None) -> Dict:
     config = vars(args)
 
     for arg in config:
-        if str(type(config[arg])) == "<class 'list'>":
-            continue
+        
         if config[arg] in {'True', 'False'}:
             config[arg] = config[arg] == 'True'
         
@@ -498,16 +320,10 @@ def get_args() -> argparse.ArgumentParser:
     parser.add_argument(
         '--data',
         metavar='DIR',
-        default='data/upstream',
+        default= None,
         type=str,
-        help='path to training data directory '
+        help='path to validation/testing data directory '
              '(default: data/upstream)'
-    )
-    parser.add_argument(
-        '--training-subjects',
-        default="",
-        type=str,
-        help='training subjects numbers'
     )
     parser.add_argument(
         '--testing-subjects',
@@ -515,77 +331,6 @@ def get_args() -> argparse.ArgumentParser:
         type=str,
         help='testing subjects numbers'
     )
-    parser.add_argument(
-        '--validation-subjects',
-        default="",
-        type=str,
-        help='validation subjects numbers'
-    )
-    """
-    parser.add_argument(
-        '--test-data',
-        metavar='DIR',
-        default=None,
-        type=str,
-        help='path to test subjects data directory '
-             '(default: data/upstream)'
-    )
-    parser.add_argument(
-        '--validation-data',
-        metavar='DIR',
-        default=None,
-        type=str,
-        help='path to validation data directory '
-             '(default: data/upstream)'
-    )
-    parser.add_argument(
-        '--training-data',
-        metavar='DIR',
-        default='data/downstream/training_subjects',
-        type=str,
-        help='path to training subjects data directory '
-             '(default: data/upstream)'
-    )
-    parser.add_argument(
-        '--frac-val-per-dataset',
-        metavar='FLOAT',
-        default=0.05,
-        type=float,
-        help='fraction of fMRI runs per dataset that '
-             'are randomly selected as validation data '
-             '(default: 0.05)'
-    )
-    
-    parser.add_argument(
-        '--n-val-subjects-per-dataset',
-        metavar='INT',
-        default=-1,
-        type=int,
-        help='number of subjects per dataset that are '
-             'randomly selected as validation data. '
-             '! overrides --frac-val-per-dataset and '
-             'requires setting --n-train-subjects-per-dataset' 
-    )
-    parser.add_argument(
-        '--n-test-subjects-per-dataset',
-        metavar='INT',
-        default=-1,
-        type=int,
-        help='number of subjects per dataset that are '
-             'randomly selected as test data. '
-             '! Test set is only created if this is set != -1'
-    )
-    parser.add_argument(
-        '--n-train-subjects-per-dataset',
-        metavar='INT',
-        default=-1,
-        type=int,
-        help='number of subjects per dataset that are '
-             'randomly selected as training data. '
-             '! overrides --frac-val-per-dataset and '
-             'requires setting --n-val-subjects-per-dataset' 
-    )
-    """
     parser.add_argument(
         '--parcellation-dim',
         metavar='INT',
@@ -826,7 +571,7 @@ def get_args() -> argparse.ArgumentParser:
     parser.add_argument(
         '--test-steps',
         metavar='INT',
-        default=1000,
+        default=100,
         type=int,
         help='number of test steps to perform at test time'
              '(default: 2000). '
@@ -836,7 +581,7 @@ def get_args() -> argparse.ArgumentParser:
     parser.add_argument(
         '--per-device-training-batch-size',
         metavar='INT',
-        default=64,
+        default=10,
         type=int,
         help='batch size during training per training device '
              '(default: 64)'
@@ -844,7 +589,7 @@ def get_args() -> argparse.ArgumentParser:
     parser.add_argument(
         '--per-device-validation-batch-size',
         metavar='INT',
-        default=64,
+        default=10,
         type=int,
         help='batch size during evaluation per training device '
              '(default: 64)'
