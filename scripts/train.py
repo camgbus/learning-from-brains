@@ -3,7 +3,10 @@
 """
 train.py
 
-Training of models on given data. See get_args() for 
+Training of models on given data. Validation and testing are optional.
+To run validation and testing separately, run evaluation.py. 
+
+See get_args() for 
 details on command line arguments.
 
 To train a model, multiple core components from ..src/ 
@@ -35,6 +38,33 @@ src/trainer: Trainer for model; invokes instance of
     Hugging Face's Trainer object.
 src/model: Build full model from components (ie., embedder, 
     decoder, unembedder). See make_model() below for details.
+
+Example way of adapting the pre-trained GPT architecture to the MDTB dataset by running:
+
+python3 scripts/train.py \
+    --data 'data/downstream/ds002105' \ #ds002105 represents the dataset's OpenNeuro identifier
+    --training-subjects '02 03 04 08 09' \
+    --validation-subjects '10 12' \
+    --testing-subjects '14 15 17 18' \
+    --architecture 'GPT' \
+    --pretrained-model 'results/models/upstream/GPT_lrs-4_hds-12_embd-768_train-CSM_lr-0005_bs-192_drp-01/model_final/pytorch_model.bin' \
+    --training-style 'decoding' \
+    --decoding-target 'task_label.pyd' \
+    --num-decoding-classes 26 \
+    --training-steps 10000 \
+    --per-device-training-batch-size 64 \
+    --learning-rate 1e-4 \
+    --log-dir 'results/models/downstream/ds002105' \
+    --log-every-n-steps 1000
+
+Specifically, this will train the model on the data of subjects '02', '03', '04', '08', and '09'
+contained in data/downstream/ds002105, while using the data of '10' and '12' for validation and 
+'14', '15', '17', '18' for testing. During training, the model will learn to decode the 26 mental state 
+labels encoded in the task_label.pyd entries of the data .tar files from the respective bold.pyd data of 
+the same files. The model will be trained for 10,000 training steps at a mini-batch size of 64 samples 
+per used training device (ie., GPU) at a learning rate of 1e-4 with the AdamW optimizer of the HuggingFace 
+transformers library. At every 1000th training step, the model's performance will be evaluated and stored in 
+the specified --log-dir.
 """
 
 import os
@@ -185,16 +215,6 @@ def train(config: Dict=None) -> Trainer:
     print(len(validation_tarfile_paths))
     print(len(test_tarfile_paths))
 
-    #train_tarfile_paths = tools.data.grab_tarfile_paths(config["training_data"])
-    #if config["validation_data"] is not None:
-    #    validation_tarfile_paths = tools.data.grab_tarfile_paths(config["validation_data"])
-    #else:
-    #    validation_tarfile_paths = None
-    #if config["test_data"] is not None:
-    #    test_tarfile_paths = tools.data.grab_tarfile_paths(config["test_data"])
-    #else:
-    #    test_tarfile_paths = None
-    
     assert all(
         os.path.isfile(f) for f in train_tarfile_paths
     ), f'Some of the training tarfiles in {path_tarfile_paths_split} do not exist.'
@@ -507,85 +527,20 @@ def get_args() -> argparse.ArgumentParser:
         '--training-subjects',
         default="",
         type=str,
-        help='training subjects numbers'
+        help='training subjects numbers. List of training subject numbers separated by spaces'
     )
     parser.add_argument(
         '--testing-subjects',
         default="",
         type=str,
-        help='testing subjects numbers'
+        help='testing subjects numbers. List of testing subject numbers separated by spaces'
     )
     parser.add_argument(
         '--validation-subjects',
         default="",
         type=str,
-        help='validation subjects numbers'
+        help='validation subjects numbers. List of validation subject numbers separated by spaces'
     )
-    """
-    parser.add_argument(
-        '--test-data',
-        metavar='DIR',
-        default=None,
-        type=str,
-        help='path to test subjects data directory '
-             '(default: data/upstream)'
-    )
-    parser.add_argument(
-        '--validation-data',
-        metavar='DIR',
-        default=None,
-        type=str,
-        help='path to validation data directory '
-             '(default: data/upstream)'
-    )
-    parser.add_argument(
-        '--training-data',
-        metavar='DIR',
-        default='data/downstream/training_subjects',
-        type=str,
-        help='path to training subjects data directory '
-             '(default: data/upstream)'
-    )
-    parser.add_argument(
-        '--frac-val-per-dataset',
-        metavar='FLOAT',
-        default=0.05,
-        type=float,
-        help='fraction of fMRI runs per dataset that '
-             'are randomly selected as validation data '
-             '(default: 0.05)'
-    )
-    
-    parser.add_argument(
-        '--n-val-subjects-per-dataset',
-        metavar='INT',
-        default=-1,
-        type=int,
-        help='number of subjects per dataset that are '
-             'randomly selected as validation data. '
-             '! overrides --frac-val-per-dataset and '
-             'requires setting --n-train-subjects-per-dataset' 
-    )
-    parser.add_argument(
-        '--n-test-subjects-per-dataset',
-        metavar='INT',
-        default=-1,
-        type=int,
-        help='number of subjects per dataset that are '
-             'randomly selected as test data. '
-             '! Test set is only created if this is set != -1'
-    )
-    parser.add_argument(
-        '--n-train-subjects-per-dataset',
-        metavar='INT',
-        default=-1,
-        type=int,
-        help='number of subjects per dataset that are '
-             'randomly selected as training data. '
-             '! overrides --frac-val-per-dataset and '
-             'requires setting --n-val-subjects-per-dataset' 
-    )
-    """
     parser.add_argument(
         '--parcellation-dim',
         metavar='INT',

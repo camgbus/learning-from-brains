@@ -1,3 +1,8 @@
+""""
+Converts the .npy files generated from testing into .csv file
+
+""""
+
 import os
 import argparse
 from typing import Dict
@@ -22,17 +27,6 @@ from src import tools
 def convert(config: Dict=None) -> Trainer:
     file_name = "/Users/raymond/desktop/raymond/stanford/senior/cns_research/learning-from-brains-master/results/models/downstream/ds002105/testing_results/GPT_lrs-4_hds-12_embd-768_train-decoding_lr-0001_bs-64_drp-01_2024-02-12_01-17-23/test_predictions.npy"
     data = np.load(file_name)
-    predictions = [np.argmax(x) for x in data ]
-    
-    file_name = "/Users/raymond/desktop/raymond/stanford/senior/cns_research/learning-from-brains-master/results/models/downstream/ds002105/testing_results/GPT_lrs-4_hds-12_embd-768_train-decoding_lr-0001_bs-64_drp-01_2024-02-12_01-17-23/test_label_ids.npy"
-    data2 = np.load(file_name)
-
-    count = 0
-    for i, x in enumerate(predictions):
-        if x == data2[i]:
-            count += 1
-    
-    print(count / len(data2))
 
     save_location = "/Users/raymond/desktop/raymond/stanford/senior/cns_research/learning-from-brains-master/results/models/downstream/ds002105/testing_results/GPT_lrs-4_hds-12_embd-768_train-decoding_lr-0001_bs-64_drp-01_2024-02-12_01-17-23/test_predictions.csv"
     np.savetxt(save_location, data, delimiter=' ')

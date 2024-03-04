@@ -1,3 +1,29 @@
+"""
+evaluation_per_subject.py
+
+Evaluates a finetuned model for specified subjects. 
+
+See get_args() for 
+details on command line arguments.
+
+Example way of testing the model finetuned  to the MDTB dataset:
+
+python3 scripts/evaluation_per_subject.py \
+    --data 'data/downstream/ds002105' \ #ds002105 represents the dataset's OpenNeuro identifier
+    --testing-subjects '14 15 17 18' \
+    --architecture 'GPT' \
+    --finetuned-model 'results/models/downstream/ds002105/GPT_lrs-4_hds-12_embd-768_train-decoding_lr-0001_bs-64_drp-01_2024-02-05_03-33-32/model_final/pytorch_model.bin' \
+    --training-style 'decoding' \
+    --decoding-target 'task_label.pyd' \
+    --num-decoding-classes 26 \
+    --log-dir 'results/models/downstream/ds002105/testing_results' \
+    --log-every-n-steps 1000
+
+Specifically, this will test the model loaded from finetuned-model on the data of subjects 
+'14', '15', '17', and '18' contained in data/downstream/ds002105. The results will be logged
+for each subject in --log-dir. 
+"""
+
 import os
 import argparse
 from typing import Dict
@@ -18,7 +44,6 @@ from src.unembedder import make_unembedder
 from src.model import Model
 from src import tools
 
-#pass in subject numbers for testing. Loop over and do training for each subject one by one. Store separately. 
 
 def test_for_subject(config, subject):
     tarfile_paths = tools.data.grab_tarfile_paths(config["data"])
@@ -212,8 +237,8 @@ def make_model(model_config: Dict=None):
             num_decoding_classes=model_config["num_decoding_classes"]
         )
 
-    if model_config["pretrained_model"] is not None:
-        model.from_pretrained(model_config["pretrained_model"])
+    if model_config["finetuned_model"] is not None:
+        model.from_pretrained(model_config["finetuned_model"])
 
     if model_config["freeze_embedder"]:
         for param in model.embedder.parameters():
@@ -340,7 +365,7 @@ def get_args() -> argparse.ArgumentParser:
              '! This is fixed for the current up-/downstream data.'
     )
     parser.add_argument(
-        '--pretrained-model',
+        '--finetuned-model',
         metavar='DIR',
         type=str,
         default='none',
@@ -573,8 +598,8 @@ def get_args() -> argparse.ArgumentParser:
         metavar='INT',
         default=100,
         type=int,
-        help='number of test steps to perform at test time'
-             '(default: 2000). '
+        help='number of test steps to perform at test time for each subject'
+             '(default: 100). '
              '! Test evaluation only performed if test set created by '
              'setting --n-test-subjects-per-dataset != -1'
     )
@@ -591,8 +616,8 @@ def get_args() -> argparse.ArgumentParser:
         metavar='INT',
         default=10,
         type=int,
-        help='batch size during evaluation per training device '
-             '(default: 64)'
+        help='batch size during evaluation/testing per training device'
+             '(default: 10)'
     )
     parser.add_argument(
         '--optim',
