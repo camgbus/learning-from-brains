@@ -279,7 +279,7 @@ def get_args() -> argparse.Namespace:
         '--bids-dir',
         metavar='DIR',
         type=str,
-        help='directory where HCP source data and derivatives '
+        help='directory where MDTB source data and derivatives '
              'are stored in BIDS format'
     )
     parser.add_argument(
